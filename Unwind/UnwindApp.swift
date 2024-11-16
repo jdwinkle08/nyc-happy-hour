@@ -1,14 +1,12 @@
-//
-//  UnwindApp.swift
-//  Unwind
-//
-//  Created by Jeff Winkle on 11/16/24.
-//
-
 import SwiftUI
+import GoogleMaps
 
 @main
 struct UnwindApp: App {
+    init() {
+        GMSServices.provideAPIKey("AIzaSyADhMicOhsBGNtiyx6O6zzFy-j-cUa-wgc")
+    }
+    
     var body: some Scene {
         WindowGroup {
             ContentView()

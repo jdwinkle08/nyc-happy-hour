@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		F6728BAB2CE959F300503492 /* GoogleMaps in Frameworks */ = {isa = PBXBuildFile; productRef = F6728BAA2CE959F300503492 /* GoogleMaps */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		F62C4F7B2CE93D860044824F /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +33,22 @@
 		F62C4F842CE93D870044824F /* UnwindUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = UnwindUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F684A1C12CE9561400898EA1 /* Exceptions for "Unwind" folder in "Unwind" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = F62C4F692CE93D840044824F /* Unwind */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F62C4F6C2CE93D840044824F /* Unwind */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F684A1C12CE9561400898EA1 /* Exceptions for "Unwind" folder in "Unwind" target */,
+			);
 			path = Unwind;
 			sourceTree = "<group>";
 		};
@@ -52,6 +69,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F6728BAB2CE959F300503492 /* GoogleMaps in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -72,6 +90,13 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		CE58D8A87983255CAC773E3D /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = Pods;
+			sourceTree = "<group>";
+		};
 		F62C4F612CE93D840044824F = {
 			isa = PBXGroup;
 			children = (
@@ -79,6 +104,7 @@
 				F62C4F7D2CE93D860044824F /* UnwindTests */,
 				F62C4F872CE93D870044824F /* UnwindUITests */,
 				F62C4F6B2CE93D840044824F /* Products */,
+				CE58D8A87983255CAC773E3D /* Pods */,
 			);
 			sourceTree = "<group>";
 		};
@@ -111,8 +137,6 @@
 				F62C4F6C2CE93D840044824F /* Unwind */,
 			);
 			name = Unwind;
-			packageProductDependencies = (
-			);
 			productName = Unwind;
 			productReference = F62C4F6A2CE93D840044824F /* Unwind.app */;
 			productType = "com.apple.product-type.application";
@@ -134,8 +158,6 @@
 				F62C4F7D2CE93D860044824F /* UnwindTests */,
 			);
 			name = UnwindTests;
-			packageProductDependencies = (
-			);
 			productName = UnwindTests;
 			productReference = F62C4F7A2CE93D860044824F /* UnwindTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -157,8 +179,6 @@
 				F62C4F872CE93D870044824F /* UnwindUITests */,
 			);
 			name = UnwindUITests;
-			packageProductDependencies = (
-			);
 			productName = UnwindUITests;
 			productReference = F62C4F842CE93D870044824F /* UnwindUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -195,6 +215,9 @@
 			);
 			mainGroup = F62C4F612CE93D840044824F;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				F6728BA92CE959F300503492 /* XCRemoteSwiftPackageReference "ios-maps-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F62C4F6B2CE93D840044824F /* Products */;
 			projectDirPath = "";
@@ -396,8 +419,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Unwind/Preview Content\"";
+				DEVELOPMENT_TEAM = 23QBGEBT3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Unwind/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -408,7 +433,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = jeffwinkle.Unwind;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jeffwinkle.Unwind;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -424,8 +449,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Unwind/Preview Content\"";
+				DEVELOPMENT_TEAM = 23QBGEBT3W;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Unwind/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -436,7 +463,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = jeffwinkle.Unwind;
+				PRODUCT_BUNDLE_IDENTIFIER = com.jeffwinkle.Unwind;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -552,6 +579,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		F6728BA92CE959F300503492 /* XCRemoteSwiftPackageReference "ios-maps-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/googlemaps/ios-maps-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 9.1.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F6728BAA2CE959F300503492 /* GoogleMaps */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F6728BA92CE959F300503492 /* XCRemoteSwiftPackageReference "ios-maps-sdk" */;
+			productName = GoogleMaps;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F62C4F622CE93D840044824F /* Project object */;
 }

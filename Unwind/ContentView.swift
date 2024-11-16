@@ -1,24 +1,24 @@
-//
-//  ContentView.swift
-//  Unwind
-//
-//  Created by Jeff Winkle on 11/16/24.
-//
-
 import SwiftUI
+import GoogleMaps
 
 struct ContentView: View {
     var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
+        MapViewContainer()
     }
 }
 
-#Preview {
-    ContentView()
+struct MapViewContainer: UIViewRepresentable {
+    func makeUIView(context: Context) -> GMSMapView {
+        let camera = GMSCameraPosition(latitude: 40.7128,
+                                     longitude: -74.0060,
+                                     zoom: 12)
+        
+        let mapOptions = GMSMapViewOptions()
+        mapOptions.camera = camera
+        
+        let mapView = GMSMapView(options: mapOptions)
+        return mapView
+    }
+    
+    func updateUIView(_ uiView: GMSMapView, context: Context) {}
 }
