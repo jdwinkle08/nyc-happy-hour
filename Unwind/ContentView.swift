@@ -2,31 +2,60 @@ import SwiftUI
 import GoogleMaps
 import GooglePlaces
 
-// Model matching your Airtable schema with field IDs
+// MARK: - Models
 struct Place: Identifiable, Codable {
-    let id: Int
-    let googleMapsId: String
-    let name: String
-    let address: String
-    let neighborhood: [String]
-    let borough: String
+    var id: String { recordId } // Computed property to satisfy Identifiable
+    let recordId: String // This will be set from AirtableRecord's id
+    let googleMapsId: String?
     
     enum CodingKeys: String, CodingKey {
-        case id = "fldjGU5XFNQZvSRTw"
-        case googleMapsId = "fldRrE7awVnQaBpxf"
-        case name = "fldCewXJVSQjNqcGD"
-        case address = "fldY1hXTZdbu0w8R0"
-        case neighborhood = "fldWOLkzhbkgeyW4P"
-        case borough = "fldwqiKbbOneZCUbk"
+        case googleMapsId = "Google Maps ID"
+        // recordId is not coded because it comes from the parent record
+    }
+    
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.googleMapsId = try? container.decodeIfPresent(String.self, forKey: .googleMapsId)
+        // Set a temporary value for recordId - it will be properly set when creating the Place
+        self.recordId = ""
+    }
+    
+    // Custom init to set the recordId
+    init(recordId: String, googleMapsId: String?) {
+        self.recordId = recordId
+        self.googleMapsId = googleMapsId
     }
 }
 
+struct AirtableResponse: Codable {
+    let records: [AirtableRecord]
+}
+
+struct AirtableRecord: Codable {
+    let id: String
+    let fields: AirtableFields
+    
+    // Function to convert to Place
+    func toPlace() -> Place {
+        Place(recordId: id, googleMapsId: fields.googleMapsId)
+    }
+}
+
+struct AirtableFields: Codable {
+    let googleMapsId: String?
+    
+    enum CodingKeys: String, CodingKey {
+        case googleMapsId = "Google Maps ID"
+    }
+}
+
+// MARK: - ViewModel
 class MapViewModel: ObservableObject {
     @Published var places: [Place] = []
     @Published var isLoading = false
     @Published var error: String?
     
-    private let airtablePAT = Secrets.airtablePAT  // Changed from airtableApiKey
+    private let airtablePAT = Secrets.airtablePAT
     private let baseId = Secrets.airtableBaseId
     private let tableName = "Places"
     
@@ -38,12 +67,10 @@ class MapViewModel: ObservableObject {
         guard let url = URL(string: "https://api.airtable.com/v0/\(baseId)/\(tableName)") else {
             error = "Invalid URL"
             isLoading = false
-            print("Invalid URL")
             return
         }
         
         var request = URLRequest(url: url)
-        // Update the Authorization header for PAT
         request.setValue("Bearer \(airtablePAT)", forHTTPHeaderField: "Authorization")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
@@ -51,13 +78,12 @@ class MapViewModel: ObservableObject {
                 print("HTTP Status Code: \(httpResponse.statusCode)")
             }
             
-            print("Got response...")
             DispatchQueue.main.async {
                 self?.isLoading = false
                 
                 if let error = error {
                     self?.error = error.localizedDescription
-                    print("Error: \(error)")
+                    print("Network error: \(error.localizedDescription)")
                     return
                 }
                 
@@ -68,30 +94,62 @@ class MapViewModel: ObservableObject {
                 }
                 
                 // Print raw response for debugging
-                print("Raw response: \(String(data: data, encoding: .utf8) ?? "No data")")
+                if let jsonString = String(data: data, encoding: .utf8) {
+                    print("Raw response: \(jsonString)")
+                }
                 
                 do {
                     let decoder = JSONDecoder()
                     let response = try decoder.decode(AirtableResponse.self, from: data)
-                    self?.places = response.records.map { $0.fields }
-                    print("Got \(response.records.count) places")
+                    
+                    // Convert AirtableRecords to Places
+                    self?.places = response.records.map { $0.toPlace() }
+                    
+                    // Print decoded data
+                    for place in self?.places ?? [] {
+                        print("Record ID: \(place.id)")
+                        if let gmId = place.googleMapsId {
+                            print("Has Google Maps ID: \(gmId)")
+                        } else {
+                            print("No Google Maps ID")
+                        }
+                    }
+                    
+                    print("Successfully decoded \(response.records.count) places")
+                    
+                    // Print count of places with Google Maps IDs
+                    let placesWithGoogleMapsId = self?.places.filter { $0.googleMapsId != nil }.count ?? 0
+                    print("Places with Google Maps ID: \(placesWithGoogleMapsId)")
+                    print("Places without Google Maps ID: \(response.records.count - placesWithGoogleMapsId)")
+                    
                 } catch {
                     self?.error = "Decoding error: \(error.localizedDescription)"
                     print("Decoding error: \(error)")
+                    
+                    if let decodingError = error as? DecodingError {
+                        switch decodingError {
+                        case .keyNotFound(let key, let context):
+                            print("Missing key: \(key.stringValue)")
+                            print("Context: \(context.debugDescription)")
+                        case .valueNotFound(let type, let context):
+                            print("Missing value of type: \(type)")
+                            print("Context: \(context.debugDescription)")
+                        case .typeMismatch(let type, let context):
+                            print("Type mismatch: expected \(type)")
+                            print("Context: \(context.debugDescription)")
+                        case .dataCorrupted(let context):
+                            print("Data corrupted: \(context.debugDescription)")
+                        @unknown default:
+                            print("Unknown decoding error")
+                        }
+                    }
                 }
             }
         }.resume()
     }
 }
 
-struct AirtableResponse: Codable {
-    let records: [AirtableRecord]
-}
-
-struct AirtableRecord: Codable {
-    let fields: Place
-}
-
+// MARK: - Views
 struct ContentView: View {
     @StateObject private var viewModel = MapViewModel()
     
@@ -130,6 +188,7 @@ struct MapViewContainer: UIViewRepresentable {
     let places: [Place]
     
     func makeUIView(context: Context) -> GMSMapView {
+        print("Creating map view...")
         let camera = GMSCameraPosition(latitude: 40.7128,
                                      longitude: -74.0060,
                                      zoom: 12)
@@ -143,37 +202,50 @@ struct MapViewContainer: UIViewRepresentable {
     }
     
     func updateUIView(_ mapView: GMSMapView, context: Context) {
-        // Clear existing markers
+        print("\nUpdating map view with \(places.count) places...")
         mapView.clear()
-        
-        // Add markers for each place
-        places.forEach { place in
-            let placeProperties = ["coordinate", "name", "formattedAddress"]
-            let request = GMSFetchPlaceRequest(placeID: place.googleMapsId,
-                                             placeProperties: placeProperties,
-                                             sessionToken: nil)
-            
-            GMSPlacesClient.shared().fetchPlace(with: request) { gmsPlace, error in
+
+        for place in places {
+            guard let placeId = place.googleMapsId else {
+                print("Skipping place with no Google Maps ID")
+                continue
+            }
+
+            print("Fetching place details for Google Maps ID: \(placeId)")
+
+            // Create a place fields parameter specifying which fields to fetch
+            let fields: GMSPlaceField = [.coordinate, .name, .formattedAddress]
+
+            // Use GMSPlacesClient's fetchPlace method
+            GMSPlacesClient.shared().fetchPlace(
+                fromPlaceID: placeId,
+                placeFields: fields,
+                sessionToken: nil
+            ) { gmsPlace, error in
                 if let error = error {
-                    print("Lookup place id error for \(place.name): \(error.localizedDescription)")
+                    print("❌ Error fetching place for ID \(placeId): \(error.localizedDescription)")
                     return
                 }
-                
+
                 guard let gmsPlace = gmsPlace else {
-                    print("No place found for \(place.name)")
+                    print("❌ No place found for ID \(placeId)")
                     return
                 }
-                
+
+                // Successfully fetched place details
+                print("✅ Successfully fetched place: \(gmsPlace.name ?? "Unnamed")")
+                print("  - Coordinates: (\(gmsPlace.coordinate.latitude), \(gmsPlace.coordinate.longitude))")
+                print("  - Address: \(gmsPlace.formattedAddress ?? "No address")")
+
+                // Create a marker for the fetched place
                 DispatchQueue.main.async {
                     let marker = GMSMarker()
                     marker.position = gmsPlace.coordinate
-                    marker.title = place.name
-                    marker.snippet = place.address
-                    marker.userData = place
+                    marker.title = gmsPlace.name
+                    marker.snippet = gmsPlace.formattedAddress
                     marker.map = mapView
-                    
-                    // Customize marker appearance
                     marker.icon = GMSMarker.markerImage(with: .systemBlue)
+                    print("📍 Added marker for \(gmsPlace.name ?? "Unnamed")")
                 }
             }
         }
@@ -191,10 +263,7 @@ struct MapViewContainer: UIViewRepresentable {
         }
         
         func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
-            if let place = marker.userData as? Place {
-                print("Tapped: \(place.name) in \(place.borough)")
-                // You can add custom tap behavior here
-            }
+            print("Tapped marker: \(marker.title ?? "Unnamed")")
             return false
         }
     }
