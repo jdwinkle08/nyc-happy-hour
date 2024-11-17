@@ -1,10 +1,12 @@
 import SwiftUI
 import GoogleMaps
+import GooglePlaces
 
 @main
 struct UnwindApp: App {
     init() {
-        GMSServices.provideAPIKey("AIzaSyADhMicOhsBGNtiyx6O6zzFy-j-cUa-wgc")
+        GMSServices.provideAPIKey(Secrets.googleMapsApiKey)
+        GMSPlacesClient.provideAPIKey(Secrets.googleMapsApiKey)
     }
     
     var body: some Scene {
