@@ -3,27 +3,28 @@ import GoogleMaps
 import GooglePlaces
 
 // MARK: - Models
-struct Place: Identifiable, Codable {
-    var id: String { recordId } // Computed property to satisfy Identifiable
-    let recordId: String // This will be set from AirtableRecord's id
+struct Place: Identifiable, Codable, Equatable {
+    var id: String { recordId }
+    let recordId: String
     let googleMapsId: String?
     
     enum CodingKeys: String, CodingKey {
         case googleMapsId = "Google Maps ID"
-        // recordId is not coded because it comes from the parent record
     }
     
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.googleMapsId = try? container.decodeIfPresent(String.self, forKey: .googleMapsId)
-        // Set a temporary value for recordId - it will be properly set when creating the Place
         self.recordId = ""
     }
     
-    // Custom init to set the recordId
     init(recordId: String, googleMapsId: String?) {
         self.recordId = recordId
         self.googleMapsId = googleMapsId
+    }
+    
+    static func == (lhs: Place, rhs: Place) -> Bool {
+        return lhs.recordId == rhs.recordId && lhs.googleMapsId == rhs.googleMapsId
     }
 }
 
@@ -35,7 +36,6 @@ struct AirtableRecord: Codable {
     let id: String
     let fields: AirtableFields
     
-    // Function to convert to Place
     func toPlace() -> Place {
         Place(recordId: id, googleMapsId: fields.googleMapsId)
     }
@@ -93,7 +93,6 @@ class MapViewModel: ObservableObject {
                     return
                 }
                 
-                // Print raw response for debugging
                 if let jsonString = String(data: data, encoding: .utf8) {
                     print("Raw response: \(jsonString)")
                 }
@@ -102,10 +101,8 @@ class MapViewModel: ObservableObject {
                     let decoder = JSONDecoder()
                     let response = try decoder.decode(AirtableResponse.self, from: data)
                     
-                    // Convert AirtableRecords to Places
                     self?.places = response.records.map { $0.toPlace() }
                     
-                    // Print decoded data
                     for place in self?.places ?? [] {
                         print("Record ID: \(place.id)")
                         if let gmId = place.googleMapsId {
@@ -117,7 +114,6 @@ class MapViewModel: ObservableObject {
                     
                     print("Successfully decoded \(response.records.count) places")
                     
-                    // Print count of places with Google Maps IDs
                     let placesWithGoogleMapsId = self?.places.filter { $0.googleMapsId != nil }.count ?? 0
                     print("Places with Google Maps ID: \(placesWithGoogleMapsId)")
                     print("Places without Google Maps ID: \(response.records.count - placesWithGoogleMapsId)")
@@ -150,12 +146,98 @@ class MapViewModel: ObservableObject {
 }
 
 // MARK: - Views
+struct MapViewContainer: UIViewRepresentable {
+    let places: [Place]
+    @Binding var selectedPlace: Place?
+
+    func makeUIView(context: Context) -> GMSMapView {
+        print("Creating map view...")
+        let camera = GMSCameraPosition(latitude: 40.7128,
+                                     longitude: -74.0060,
+                                     zoom: 12)
+
+        let mapOptions = GMSMapViewOptions()
+        mapOptions.camera = camera
+
+        let mapView = GMSMapView(options: mapOptions)
+        mapView.delegate = context.coordinator
+        return mapView
+    }
+
+    func updateUIView(_ mapView: GMSMapView, context: Context) {
+        print("\nUpdating map view with \(places.count) places...")
+        mapView.clear()
+
+        for place in places {
+            guard let placeId = place.googleMapsId else {
+                print("Skipping place with no Google Maps ID")
+                continue
+            }
+
+            print("Fetching place details for Google Maps ID: \(placeId)")
+
+            let fields: GMSPlaceField = [.coordinate, .name, .formattedAddress]
+
+            GMSPlacesClient.shared().fetchPlace(
+                fromPlaceID: placeId,
+                placeFields: fields,
+                sessionToken: nil
+            ) { gmsPlace, error in
+                if let error = error {
+                    print("❌ Error fetching place for ID \(placeId): \(error.localizedDescription)")
+                    return
+                }
+
+                guard let gmsPlace = gmsPlace else {
+                    print("❌ No place found for ID \(placeId)")
+                    return
+                }
+
+                print("✅ Successfully fetched place: \(gmsPlace.name ?? "Unnamed")")
+                print("  - Coordinates: (\(gmsPlace.coordinate.latitude), \(gmsPlace.coordinate.longitude))")
+                print("  - Address: \(gmsPlace.formattedAddress ?? "No address")")
+
+                DispatchQueue.main.async {
+                    let marker = GMSMarker()
+                    marker.position = gmsPlace.coordinate
+                    marker.title = gmsPlace.name
+                    marker.snippet = gmsPlace.formattedAddress
+                    marker.map = mapView
+                    marker.icon = GMSMarker.markerImage(with: .systemBlue)
+                    marker.userData = place
+                    print("📍 Added marker for \(gmsPlace.name ?? "Unnamed")")
+                }
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        return Coordinator(parent: self)
+    }
+
+    class Coordinator: NSObject, GMSMapViewDelegate {
+        var parent: MapViewContainer
+
+        init(parent: MapViewContainer) {
+            self.parent = parent
+        }
+
+        func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
+            if let place = marker.userData as? Place {
+                parent.selectedPlace = place
+            }
+            return true
+        }
+    }
+}
+
 struct ContentView: View {
     @StateObject private var viewModel = MapViewModel()
+    @State private var selectedPlace: Place? = nil
     
     var body: some View {
-        ZStack {
-            MapViewContainer(places: viewModel.places)
+        ZStack(alignment: .bottom) {
+            MapViewContainer(places: viewModel.places, selectedPlace: $selectedPlace)
                 .ignoresSafeArea()
                 .onAppear {
                     viewModel.fetchPlaces()
@@ -180,91 +262,69 @@ struct ContentView: View {
                 .cornerRadius(8)
                 .shadow(radius: 4)
             }
+            
+            if let selectedPlace = selectedPlace {
+                PlaceDetailsCard(place: selectedPlace, selectedPlace: $selectedPlace)
+                    .transition(.move(edge: .bottom))
+            }
         }
     }
 }
 
-struct MapViewContainer: UIViewRepresentable {
-    let places: [Place]
+struct PlaceDetailsCard: View {
+    let place: Place
+    @Binding var selectedPlace: Place? // Add binding to control dismissal
+    @State private var dragOffset = CGSize.zero
     
-    func makeUIView(context: Context) -> GMSMapView {
-        print("Creating map view...")
-        let camera = GMSCameraPosition(latitude: 40.7128,
-                                     longitude: -74.0060,
-                                     zoom: 12)
-        
-        let mapOptions = GMSMapViewOptions()
-        mapOptions.camera = camera
-        
-        let mapView = GMSMapView(options: mapOptions)
-        mapView.delegate = context.coordinator
-        return mapView
-    }
-    
-    func updateUIView(_ mapView: GMSMapView, context: Context) {
-        print("\nUpdating map view with \(places.count) places...")
-        mapView.clear()
-
-        for place in places {
-            guard let placeId = place.googleMapsId else {
-                print("Skipping place with no Google Maps ID")
-                continue
-            }
-
-            print("Fetching place details for Google Maps ID: \(placeId)")
-
-            // Create a place fields parameter specifying which fields to fetch
-            let fields: GMSPlaceField = [.coordinate, .name, .formattedAddress]
-
-            // Use GMSPlacesClient's fetchPlace method
-            GMSPlacesClient.shared().fetchPlace(
-                fromPlaceID: placeId,
-                placeFields: fields,
-                sessionToken: nil
-            ) { gmsPlace, error in
-                if let error = error {
-                    print("❌ Error fetching place for ID \(placeId): \(error.localizedDescription)")
-                    return
-                }
-
-                guard let gmsPlace = gmsPlace else {
-                    print("❌ No place found for ID \(placeId)")
-                    return
-                }
-
-                // Successfully fetched place details
-                print("✅ Successfully fetched place: \(gmsPlace.name ?? "Unnamed")")
-                print("  - Coordinates: (\(gmsPlace.coordinate.latitude), \(gmsPlace.coordinate.longitude))")
-                print("  - Address: \(gmsPlace.formattedAddress ?? "No address")")
-
-                // Create a marker for the fetched place
-                DispatchQueue.main.async {
-                    let marker = GMSMarker()
-                    marker.position = gmsPlace.coordinate
-                    marker.title = gmsPlace.name
-                    marker.snippet = gmsPlace.formattedAddress
-                    marker.map = mapView
-                    marker.icon = GMSMarker.markerImage(with: .systemBlue)
-                    print("📍 Added marker for \(gmsPlace.name ?? "Unnamed")")
+    var body: some View {
+        VStack(spacing: 12) {
+            // Handle bar for visual affordance - now draggable
+            RoundedRectangle(cornerRadius: 2.5)
+                .fill(Color.gray.opacity(0.5))
+                .frame(width: 36, height: 5)
+                .padding(.top, 8)
+            
+            // Place details
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Record ID: \(place.recordId)")
+                    .font(.headline)
+                
+                if let googleMapsId = place.googleMapsId {
+                    Text("Google Maps ID: \(googleMapsId)")
+                        .font(.subheadline)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+            
+            Spacer(minLength: 0)
         }
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(self)
-    }
-    
-    class Coordinator: NSObject, GMSMapViewDelegate {
-        var parent: MapViewContainer
-        
-        init(_ parent: MapViewContainer) {
-            self.parent = parent
-        }
-        
-        func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
-            print("Tapped marker: \(marker.title ?? "Unnamed")")
-            return false
-        }
+        .frame(maxWidth: .infinity)
+        .frame(height: UIScreen.main.bounds.height / 4)
+        .background(
+            Color(UIColor.systemBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .edgesIgnoringSafeArea(.bottom)
+        )
+        .shadow(radius: 8)
+        .offset(y: max(0, dragOffset.height)) // Only allow downward drag
+        .gesture(
+            DragGesture()
+                .onChanged { gesture in
+                    dragOffset = gesture.translation
+                }
+                .onEnded { gesture in
+                    if gesture.translation.height > 100 { // Threshold for dismissal
+                        withAnimation(.spring()) {
+                            selectedPlace = nil // Dismiss the card
+                        }
+                    } else {
+                        withAnimation(.spring()) {
+                            dragOffset = .zero // Reset position if not dismissed
+                        }
+                    }
+                }
+        )
+        .animation(.spring(), value: dragOffset)
     }
 }
