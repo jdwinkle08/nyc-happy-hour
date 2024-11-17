@@ -3,29 +3,38 @@ import GoogleMaps
 import GooglePlaces
 
 // MARK: - Models
-struct Place: Identifiable, Codable, Equatable {
-    var id: String { recordId }
-    let recordId: String
-    let googleMapsId: String?
+struct EventFields: Codable {
+    let eventId: Int
+    let place: [String]
+    let placeName: [String]
+    let day: String
+    let startTime: String
+    let endTime: String
+    let isActive: String
+    let description: String?
+    let googleMapsId: [String]
     
     enum CodingKeys: String, CodingKey {
+        case eventId = "Event ID"
+        case place = "Place"
+        case placeName = "Place Name"
+        case day = "Day"
+        case startTime = "Start Time"
+        case endTime = "End Time"
+        case isActive = "Happy Hour Active"
+        case description = "Description"
         case googleMapsId = "Google Maps ID"
     }
-    
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.googleMapsId = try? container.decodeIfPresent(String.self, forKey: .googleMapsId)
-        self.recordId = ""
-    }
-    
-    init(recordId: String, googleMapsId: String?) {
-        self.recordId = recordId
-        self.googleMapsId = googleMapsId
-    }
-    
-    static func == (lhs: Place, rhs: Place) -> Bool {
-        return lhs.recordId == rhs.recordId && lhs.googleMapsId == rhs.googleMapsId
-    }
+}
+
+struct Event: Identifiable, Codable {
+    let id: String
+    let createdTime: String
+    let fields: EventFields
+}
+
+struct EventsResponse: Codable {
+    let records: [Event]
 }
 
 struct PlaceDetails {
@@ -33,48 +42,33 @@ struct PlaceDetails {
     let coordinate: CLLocationCoordinate2D
     let rating: Double?
     let types: [String]
-    let photo: GMSPlacePhotoMetadata? // This will store the main photo
+    let photo: GMSPlacePhotoMetadata?
     let formattedAddress: String?
     let categoryDescription: String?
-}
-
-struct AirtableResponse: Codable {
-    let records: [AirtableRecord]
-}
-
-struct AirtableRecord: Codable {
-    let id: String
-    let fields: AirtableFields
-    
-    func toPlace() -> Place {
-        Place(recordId: id, googleMapsId: fields.googleMapsId)
-    }
-}
-
-struct AirtableFields: Codable {
-    let googleMapsId: String?
-    
-    enum CodingKeys: String, CodingKey {
-        case googleMapsId = "Google Maps ID"
-    }
+    var eventDescription: String?
 }
 
 // MARK: - ViewModel
 class MapViewModel: ObservableObject {
-    @Published var places: [Place] = []
+    @Published var events: [Event] = []
     @Published var isLoading = false
     @Published var error: String?
+    @Published var showingActiveOnly = false
     
     private let airtablePAT = Secrets.airtablePAT
     private let baseId = Secrets.airtableBaseId
-    private let tableName = "Places"
+    private let eventsTableId = "tblepy4NKexAxYMfi"
     
-    func fetchPlaces() {
-        print("Fetching places...")
+    func fetchData() {
+        fetchEvents()
+    }
+    
+    private func fetchEvents() {
+        print("Fetching events...")
         isLoading = true
         error = nil
         
-        guard let url = URL(string: "https://api.airtable.com/v0/\(baseId)/\(tableName)") else {
+        guard let url = URL(string: "https://api.airtable.com/v0/\(baseId)/\(eventsTableId)") else {
             error = "Invalid URL"
             isLoading = false
             return
@@ -84,10 +78,6 @@ class MapViewModel: ObservableObject {
         request.setValue("Bearer \(airtablePAT)", forHTTPHeaderField: "Authorization")
         
         URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            if let httpResponse = response as? HTTPURLResponse {
-                print("HTTP Status Code: \(httpResponse.statusCode)")
-            }
-            
             DispatchQueue.main.async {
                 self?.isLoading = false
                 
@@ -99,22 +89,35 @@ class MapViewModel: ObservableObject {
                 
                 guard let data = data else {
                     self?.error = "No data received"
-                    print("No data received")
                     return
-                }
-                
-                if let jsonString = String(data: data, encoding: .utf8) {
-                    print("Raw response: \(jsonString)")
                 }
                 
                 do {
                     let decoder = JSONDecoder()
-                    let response = try decoder.decode(AirtableResponse.self, from: data)
-                    self?.places = response.records.map { $0.toPlace() }
-                    print("Successfully decoded \(response.records.count) places")
+                    let response = try decoder.decode(EventsResponse.self, from: data)
+                    self?.events = response.records
+                    print("Successfully fetched \(response.records.count) events")
                 } catch {
                     self?.error = "Decoding error: \(error.localizedDescription)"
                     print("Decoding error: \(error)")
+                    
+                    if let decodingError = error as? DecodingError {
+                        switch decodingError {
+                        case .keyNotFound(let key, let context):
+                            print("Missing key: \(key.stringValue)")
+                            print("Context: \(context.debugDescription)")
+                        case .valueNotFound(let type, let context):
+                            print("Missing value of type: \(type)")
+                            print("Context: \(context.debugDescription)")
+                        case .typeMismatch(let type, let context):
+                            print("Type mismatch: expected \(type)")
+                            print("Context: \(context.debugDescription)")
+                        case .dataCorrupted(let context):
+                            print("Data corrupted: \(context.debugDescription)")
+                        @unknown default:
+                            print("Unknown decoding error")
+                        }
+                    }
                 }
             }
         }.resume()
@@ -123,14 +126,15 @@ class MapViewModel: ObservableObject {
 
 // MARK: - Views
 struct MapViewContainer: UIViewRepresentable {
-    let places: [Place]
-    @Binding var selectedPlace: (Place, PlaceDetails)?
+    let events: [Event]
+    let showingActiveOnly: Bool
+    @Binding var selectedPlace: (String, PlaceDetails)?
 
     func makeUIView(context: Context) -> GMSMapView {
         print("Creating map view...")
         let camera = GMSCameraPosition(latitude: 40.7128,
-                                       longitude: -74.0060,
-                                       zoom: 12)
+                                     longitude: -74.0060,
+                                     zoom: 12)
 
         let mapOptions = GMSMapViewOptions()
         mapOptions.camera = camera
@@ -141,46 +145,47 @@ struct MapViewContainer: UIViewRepresentable {
     }
 
     func updateUIView(_ mapView: GMSMapView, context: Context) {
-        print("\nUpdating map view with \(places.count) places...")
+        print("\nUpdating map view...")
         mapView.clear()
-
-        for place in places {
-            guard let placeId = place.googleMapsId else {
-                print("Skipping place with no Google Maps ID")
-                continue
-            }
-
-            print("Fetching place details for Google Maps ID: \(placeId)")
+        
+        let filteredEvents = showingActiveOnly ?
+            events.filter { $0.fields.isActive == "Yes" } :
+            events
+        
+        let uniqueGoogleMapsIds = Set(filteredEvents.flatMap { $0.fields.googleMapsId })
+        print("Showing \(uniqueGoogleMapsIds.count) places on map")
+        
+        for googleMapsId in uniqueGoogleMapsIds {
+            print("Fetching place details for Google Maps ID: \(googleMapsId)")
 
             let fields: GMSPlaceField = [.coordinate, .name, .types, .rating, .photos, .formattedAddress]
 
             GMSPlacesClient.shared().fetchPlace(
-                fromPlaceID: placeId,
+                fromPlaceID: googleMapsId,
                 placeFields: fields,
                 sessionToken: nil
             ) { gmsPlace, error in
                 if let error = error {
-                    print("❌ Error fetching place for ID \(placeId): \(error.localizedDescription)")
+                    print("❌ Error fetching place for ID \(googleMapsId): \(error.localizedDescription)")
                     return
                 }
 
                 guard let gmsPlace = gmsPlace else {
-                    print("❌ No place found for ID \(placeId)")
+                    print("❌ No place found for ID \(googleMapsId)")
                     return
                 }
 
-                // Retrieve the first photo (main photo)
-                let mainPhoto = gmsPlace.photos?.first
+                let event = filteredEvents.first { $0.fields.googleMapsId.contains(googleMapsId) }
 
-                // Create PlaceDetails instance with main photo
                 let details = PlaceDetails(
                     name: gmsPlace.name ?? "Unknown",
                     coordinate: gmsPlace.coordinate,
                     rating: Double(gmsPlace.rating),
                     types: gmsPlace.types ?? [],
-                    photo: mainPhoto,
+                    photo: gmsPlace.photos?.first,
                     formattedAddress: gmsPlace.formattedAddress,
-                    categoryDescription: gmsPlace.types?.first?.replacingOccurrences(of: "_", with: " ").capitalized
+                    categoryDescription: gmsPlace.types?.first?.replacingOccurrences(of: "_", with: " ").capitalized,
+                    eventDescription: event?.fields.description
                 )
 
                 DispatchQueue.main.async {
@@ -190,23 +195,8 @@ struct MapViewContainer: UIViewRepresentable {
                     marker.snippet = details.formattedAddress
                     marker.map = mapView
                     marker.icon = GMSMarker.markerImage(with: .systemBlue)
-                    marker.userData = (place, details)
+                    marker.userData = (googleMapsId: googleMapsId, details: details)
                     print("📍 Added marker for \(details.name)")
-
-                    // Optionally, fetch the photo image if you need to display it
-                    if let photoMetadata = mainPhoto {
-                        GMSPlacesClient.shared().loadPlacePhoto(photoMetadata) { photo, error in
-                            if let error = error {
-                                print("❌ Error loading photo for place \(details.name): \(error.localizedDescription)")
-                                return
-                            }
-                            if let photo = photo {
-                                // Use the photo UIImage here, e.g., you can display it on a custom marker or a callout
-                                print("Successfully fetched main photo for \(details.name)")
-                                // Example: Update the marker or callout with the photo if needed
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -224,18 +214,41 @@ struct MapViewContainer: UIViewRepresentable {
         }
 
         func mapView(_ mapView: GMSMapView, didTap marker: GMSMarker) -> Bool {
-            if let (place, details) = marker.userData as? (Place, PlaceDetails) {
-                parent.selectedPlace = (place, details)
+            if let (googleMapsId, details) = marker.userData as? (googleMapsId: String, details: PlaceDetails) {
+                parent.selectedPlace = (googleMapsId, details)
             }
             return true
         }
     }
 }
 
+struct FilterButton: View {
+    @Binding var isActive: Bool
+    
+    var body: some View {
+        Button(action: { isActive.toggle() }) {
+            Text("Happening Now")
+                .font(.system(size: 14, weight: .medium))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(isActive ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
+                )
+                .foregroundColor(isActive ? .blue : .black)
+        }
+    }
+}
+
 struct PlaceDetailsCard: View {
-    let place: Place
+    let googleMapsId: String
     let details: PlaceDetails
-    @Binding var selectedPlace: (Place, PlaceDetails)?
+    @Binding var selectedPlace: (String, PlaceDetails)?
     @State private var dragOffset = CGSize.zero
     @State private var placeImage: UIImage?
     @State private var isExpanded = false
@@ -248,28 +261,6 @@ struct PlaceDetailsCard: View {
                 .frame(width: 36, height: 5)
                 .padding(.top, 8)
                 .padding(.bottom, 12)
-                .gesture(
-                    DragGesture()
-                        .onChanged { gesture in
-                            dragOffset = gesture.translation
-                        }
-                        .onEnded { gesture in
-                            withAnimation(.spring()) {
-                                if gesture.translation.height > 150 {
-                                    // If dragged down significantly, close the card
-                                    selectedPlace = nil
-                                } else if gesture.translation.height < -50 {
-                                    // If dragged up, expand the card
-                                    isExpanded = true
-                                    dragOffset = .zero
-                                } else {
-                                    // If dragged but not enough, toggle expand/collapse
-                                    isExpanded.toggle()
-                                    dragOffset = .zero
-                                }
-                            }
-                        }
-                )
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
@@ -294,7 +285,6 @@ struct PlaceDetailsCard: View {
                             }
                         }
 
-                        // Fetch a more specific category or type
                         if let categoryDescription = details.categoryDescription {
                             Text(categoryDescription)
                                 .font(.subheadline)
@@ -302,7 +292,6 @@ struct PlaceDetailsCard: View {
                         }
                     }
 
-                    // Featured Photo Section
                     if let image = placeImage {
                         Image(uiImage: image)
                             .resizable()
@@ -311,13 +300,12 @@ struct PlaceDetailsCard: View {
                             .clipShape(RoundedRectangle(cornerRadius: 12))
                     }
 
-                    // Happy Hour Deals Section (Placeholder Text)
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Happy Hour Deals:")
                             .font(.headline)
                             .foregroundColor(.primary)
 
-                        Text("(happy hour description)")
+                        Text(details.eventDescription ?? "(Still learning happy hour deals...)")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -357,15 +345,7 @@ struct PlaceDetailsCard: View {
         }
     }
 
-    /// Fetches a more descriptive type or category for the place.
-    private func getSpecificType() -> String? {
-        let commonTypes = ["restaurant", "bar", "food", "point_of_interest"]
-        let filteredTypes = details.types.filter { !commonTypes.contains($0) }
-        return filteredTypes.first?.replacingOccurrences(of: "_", with: " ").capitalized
-    }
-
-    /// Loads the featured photo for the place using the Google Places API.
-private func loadFeaturedPhoto() {
+    private func loadFeaturedPhoto() {
         guard let photoMetadata = details.photo else { return }
         GMSPlacesClient.shared().loadPlacePhoto(photoMetadata) { image, error in
             if let error = error {
@@ -383,15 +363,33 @@ private func loadFeaturedPhoto() {
 
 struct ContentView: View {
     @StateObject private var viewModel = MapViewModel()
-    @State private var selectedPlace: (Place, PlaceDetails)? = nil
+    @State private var selectedPlace: (String, PlaceDetails)? = nil
     
     var body: some View {
-        ZStack(alignment: .bottom) {
-            MapViewContainer(places: viewModel.places, selectedPlace: $selectedPlace)
-                .ignoresSafeArea()
-                .onAppear {
-                    viewModel.fetchPlaces()
+        ZStack(alignment: .bottom) { // Keeps the bottom alignment for PlaceDetailsCard
+            MapViewContainer(
+                events: viewModel.events,
+                showingActiveOnly: viewModel.showingActiveOnly,
+                selectedPlace: $selectedPlace
+            )
+            .ignoresSafeArea()
+            .onAppear {
+                viewModel.fetchData()
+            }
+            
+            GeometryReader { geometry in
+                VStack {
+                    // Filter button placed directly below the safe area
+                    HStack {
+                        FilterButton(isActive: $viewModel.showingActiveOnly)
+                        Spacer()
+                    }
+                    .padding(.horizontal)
+                    .padding(.top, geometry.safeAreaInsets.top) // Exact safe area top inset
+                    
+                    Spacer()
                 }
+            }
             
             if viewModel.isLoading {
                 ProgressView()
@@ -413,9 +411,13 @@ struct ContentView: View {
                 .shadow(radius: 4)
             }
             
-            if let (place, details) = selectedPlace {
-                PlaceDetailsCard(place: place, details: details, selectedPlace: $selectedPlace)
-                    .transition(.move(edge: .bottom))
+            if let (googleMapsId, details) = selectedPlace {
+                PlaceDetailsCard(
+                    googleMapsId: googleMapsId,
+                    details: details,
+                    selectedPlace: $selectedPlace
+                )
+                .transition(.move(edge: .bottom))
             }
         }
     }
