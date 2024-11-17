@@ -46,6 +46,19 @@ struct PlaceDetails {
     let formattedAddress: String?
     let categoryDescription: String?
     var eventDescription: String?
+    
+    static func getCategoryDescription(from place: GMSPlace) -> String? {
+        let commonTypes = ["point_of_interest", "establishment", "food", "restaurant", "store"]
+        if let specificType = place.types?.first(where: { !commonTypes.contains($0) }) {
+            let formattedType = specificType
+                .replacingOccurrences(of: "_", with: " ")
+                .capitalized
+            print("Found specific type for \(place.name ?? "Unknown"): \(formattedType)")
+            return formattedType
+        }
+        print("No specific type found for \(place.name ?? "Unknown"), types: \(place.types ?? [])")
+        return nil
+    }
 }
 
 // MARK: - ViewModel
@@ -100,24 +113,6 @@ class MapViewModel: ObservableObject {
                 } catch {
                     self?.error = "Decoding error: \(error.localizedDescription)"
                     print("Decoding error: \(error)")
-                    
-                    if let decodingError = error as? DecodingError {
-                        switch decodingError {
-                        case .keyNotFound(let key, let context):
-                            print("Missing key: \(key.stringValue)")
-                            print("Context: \(context.debugDescription)")
-                        case .valueNotFound(let type, let context):
-                            print("Missing value of type: \(type)")
-                            print("Context: \(context.debugDescription)")
-                        case .typeMismatch(let type, let context):
-                            print("Type mismatch: expected \(type)")
-                            print("Context: \(context.debugDescription)")
-                        case .dataCorrupted(let context):
-                            print("Data corrupted: \(context.debugDescription)")
-                        @unknown default:
-                            print("Unknown decoding error")
-                        }
-                    }
                 }
             }
         }.resume()
@@ -125,6 +120,32 @@ class MapViewModel: ObservableObject {
 }
 
 // MARK: - Views
+struct RatingStarsView: View {
+    let rating: Double
+    
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<5) { index in
+                let value = rating - Double(index)
+                Group {
+                    if value >= 0.8 {
+                        Image(systemName: "star.fill")
+                    } else if value >= 0.3 {
+                        Image(systemName: "star.leadinghalf.filled")
+                    } else {
+                        Image(systemName: "star")
+                    }
+                }
+            }
+        }
+        .foregroundColor(.yellow)
+        .font(.system(size: 12))
+        .onAppear {
+            print("Rendering stars for rating: \(rating)")
+        }
+    }
+}
+
 struct MapViewContainer: UIViewRepresentable {
     let events: [Event]
     let showingActiveOnly: Bool
@@ -184,7 +205,7 @@ struct MapViewContainer: UIViewRepresentable {
                     types: gmsPlace.types ?? [],
                     photo: gmsPlace.photos?.first,
                     formattedAddress: gmsPlace.formattedAddress,
-                    categoryDescription: gmsPlace.types?.first?.replacingOccurrences(of: "_", with: " ").capitalized,
+                    categoryDescription: PlaceDetails.getCategoryDescription(from: gmsPlace),
                     eventDescription: event?.fields.description
                 )
 
@@ -245,6 +266,45 @@ struct FilterButton: View {
     }
 }
 
+struct GoogleMapsButton: View {
+    let googleMapsId: String
+    
+    var body: some View {
+        Button(action: {
+            openInGoogleMaps()
+        }) {
+            HStack(spacing: 8) {
+                Image(systemName: "map.fill")
+                Text("View in Google Maps")
+                    .fontWeight(.semibold)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(Color(UIColor.systemGray6))
+            .foregroundColor(.blue)
+            .cornerRadius(10)
+        }
+        .padding(.horizontal)
+        .buttonStyle(PressableButtonStyle())
+    }
+    
+    private func openInGoogleMaps() {
+        let urlString = "https://www.google.com/maps/place/?q=place_id:\(googleMapsId)"
+        if let url = URL(string: urlString) {
+            UIApplication.shared.open(url)
+        }
+    }
+}
+
+struct PressableButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
 struct PlaceDetailsCard: View {
     let googleMapsId: String
     let details: PlaceDetails
@@ -274,14 +334,7 @@ struct PlaceDetailsCard: View {
                             HStack(spacing: 4) {
                                 Text(String(format: "%.1f", rating))
                                     .font(.system(size: 16, weight: .medium))
-
-                                HStack(spacing: 2) {
-                                    ForEach(0..<5) { index in
-                                        Image(systemName: index < Int(rating) ? "star.fill" : "star")
-                                            .foregroundColor(.yellow)
-                                            .font(.system(size: 12))
-                                    }
-                                }
+                                RatingStarsView(rating: rating)
                             }
                         }
 
@@ -309,6 +362,8 @@ struct PlaceDetailsCard: View {
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
+                    
+                    GoogleMapsButton(googleMapsId: googleMapsId)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 16)
@@ -365,8 +420,16 @@ struct ContentView: View {
     @StateObject private var viewModel = MapViewModel()
     @State private var selectedPlace: (String, PlaceDetails)? = nil
     
+    private var topSafeAreaInset: CGFloat {
+        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let window = windowScene.windows.first else {
+            return 47
+        }
+        return window.safeAreaInsets.top
+    }
+    
     var body: some View {
-        ZStack(alignment: .bottom) { // Keeps the bottom alignment for PlaceDetailsCard
+        ZStack(alignment: .bottom) {
             MapViewContainer(
                 events: viewModel.events,
                 showingActiveOnly: viewModel.showingActiveOnly,
@@ -377,18 +440,15 @@ struct ContentView: View {
                 viewModel.fetchData()
             }
             
-            GeometryReader { geometry in
-                VStack {
-                    // Filter button placed directly below the safe area
-                    HStack {
-                        FilterButton(isActive: $viewModel.showingActiveOnly)
-                        Spacer()
-                    }
-                    .padding(.horizontal)
-                    .padding(.top, geometry.safeAreaInsets.top) // Exact safe area top inset
-                    
+            VStack {
+                HStack {
+                    FilterButton(isActive: $viewModel.showingActiveOnly)
                     Spacer()
                 }
+                .padding(.horizontal)
+                .padding(.top/*, topSafeAreaInset + 8*/)
+                
+                Spacer()
             }
             
             if viewModel.isLoading {
