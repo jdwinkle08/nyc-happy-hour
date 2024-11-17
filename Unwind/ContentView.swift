@@ -13,6 +13,7 @@ struct EventFields: Codable {
     let isActive: String
     let description: String?
     let googleMapsId: [String]
+    let neighborhood: [String]
     
     enum CodingKeys: String, CodingKey {
         case eventId = "Event ID"
@@ -24,6 +25,7 @@ struct EventFields: Codable {
         case isActive = "Happy Hour Active"
         case description = "Description"
         case googleMapsId = "Google Maps ID"
+        case neighborhood = "Neighborhood"
     }
 }
 
@@ -67,10 +69,17 @@ class MapViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var showingActiveOnly = false
+    @Published var selectedNeighborhood: String?
+    @Published var isNeighborhoodFilterExpanded = false
     
     private let airtablePAT = Secrets.airtablePAT
     private let baseId = Secrets.airtableBaseId
     private let eventsTableId = "tblepy4NKexAxYMfi"
+    
+    var uniqueNeighborhoods: [String] {
+        let allNeighborhoods = Set(events.flatMap { $0.fields.neighborhood })
+        return Array(allNeighborhoods).sorted()
+    }
     
     func fetchData() {
         fetchEvents()
@@ -117,6 +126,20 @@ class MapViewModel: ObservableObject {
             }
         }.resume()
     }
+    
+    func filteredEvents() -> [Event] {
+        var filtered = events
+        
+        if showingActiveOnly {
+            filtered = filtered.filter { $0.fields.isActive == "Yes" }
+        }
+        
+        if let neighborhood = selectedNeighborhood {
+            filtered = filtered.filter { $0.fields.neighborhood.contains(neighborhood) }
+        }
+        
+        return filtered
+    }
 }
 
 // MARK: - Views
@@ -147,8 +170,7 @@ struct RatingStarsView: View {
 }
 
 struct MapViewContainer: UIViewRepresentable {
-    let events: [Event]
-    let showingActiveOnly: Bool
+    @ObservedObject var viewModel: MapViewModel
     @Binding var selectedPlace: (String, PlaceDetails)?
 
     func makeUIView(context: Context) -> GMSMapView {
@@ -169,9 +191,7 @@ struct MapViewContainer: UIViewRepresentable {
         print("\nUpdating map view...")
         mapView.clear()
         
-        let filteredEvents = showingActiveOnly ?
-            events.filter { $0.fields.isActive == "Yes" } :
-            events
+        let filteredEvents = viewModel.filteredEvents()
         
         let uniqueGoogleMapsIds = Set(filteredEvents.flatMap { $0.fields.googleMapsId })
         print("Showing \(uniqueGoogleMapsIds.count) places on map")
@@ -266,6 +286,74 @@ struct FilterButton: View {
     }
 }
 
+struct NeighborhoodFilterButton: View {
+    @ObservedObject var viewModel: MapViewModel
+    
+    var body: some View {
+        VStack(alignment: .leading) {
+            Button(action: {
+                withAnimation {
+                    viewModel.isNeighborhoodFilterExpanded.toggle()
+                }
+            }) {
+                HStack {
+                    Text(viewModel.selectedNeighborhood ?? "Neighborhood")
+                        .font(.system(size: 14, weight: .medium))
+                    Image(systemName: "chevron.down")
+                        .rotationEffect(.degrees(viewModel.isNeighborhoodFilterExpanded ? 180 : 0))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .stroke(viewModel.selectedNeighborhood != nil ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
+                )
+                .foregroundColor(viewModel.selectedNeighborhood != nil ? .blue : .black)
+            }
+            
+            if viewModel.isNeighborhoodFilterExpanded {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Button(action: {
+                            withAnimation {
+                                viewModel.selectedNeighborhood = nil
+                                viewModel.isNeighborhoodFilterExpanded = false
+                            }
+                        }) {
+                            Text("All Neighborhoods")
+                                .foregroundColor(.primary)
+                                .padding(.vertical, 4)
+                        }
+                        
+                        ForEach(viewModel.uniqueNeighborhoods, id: \.self) { neighborhood in
+                            Button(action: {
+                                withAnimation {
+                                    viewModel.selectedNeighborhood = neighborhood
+                                    viewModel.isNeighborhoodFilterExpanded = false
+                                }
+                            }) {
+                                Text(neighborhood)
+                                    .foregroundColor(.primary)
+                                    .padding(.vertical, 4)
+                            }
+                        }
+                    }
+                    .padding()
+                }
+                .background(Color.white)
+                .cornerRadius(12)
+                .shadow(color: Color.black.opacity(0.2), radius: 4)
+                .frame(maxHeight: 200)
+            }
+        }
+    }
+}
+
 struct GoogleMapsButton: View {
     let googleMapsId: String
     
@@ -315,7 +403,6 @@ struct PlaceDetailsCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Handle bar
             RoundedRectangle(cornerRadius: 2.5)
                 .fill(Color.gray.opacity(0.5))
                 .frame(width: 36, height: 5)
@@ -324,11 +411,16 @@ struct PlaceDetailsCard: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Title and rating section
                     VStack(alignment: .leading, spacing: 8) {
                         Text(details.name)
                             .font(.system(size: 24, weight: .bold))
                             .lineLimit(2)
+
+                        if let categoryDescription = details.categoryDescription {
+                            Text(categoryDescription)
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
 
                         if let rating = details.rating {
                             HStack(spacing: 4) {
@@ -336,12 +428,6 @@ struct PlaceDetailsCard: View {
                                     .font(.system(size: 16, weight: .medium))
                                 RatingStarsView(rating: rating)
                             }
-                        }
-
-                        if let categoryDescription = details.categoryDescription {
-                            Text(categoryDescription)
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
                         }
                     }
 
@@ -420,19 +506,10 @@ struct ContentView: View {
     @StateObject private var viewModel = MapViewModel()
     @State private var selectedPlace: (String, PlaceDetails)? = nil
     
-    private var topSafeAreaInset: CGFloat {
-        guard let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
-              let window = windowScene.windows.first else {
-            return 47
-        }
-        return window.safeAreaInsets.top
-    }
-    
     var body: some View {
         ZStack(alignment: .bottom) {
             MapViewContainer(
-                events: viewModel.events,
-                showingActiveOnly: viewModel.showingActiveOnly,
+                viewModel: viewModel,
                 selectedPlace: $selectedPlace
             )
             .ignoresSafeArea()
@@ -441,12 +518,13 @@ struct ContentView: View {
             }
             
             VStack {
-                HStack {
+                HStack(spacing: 12) {
                     FilterButton(isActive: $viewModel.showingActiveOnly)
+                    NeighborhoodFilterButton(viewModel: viewModel)
                     Spacer()
                 }
                 .padding(.horizontal)
-                .padding(.top/*, topSafeAreaInset + 8*/)
+                .padding(.top)
                 
                 Spacer()
             }
