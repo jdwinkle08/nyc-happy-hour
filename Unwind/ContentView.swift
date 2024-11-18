@@ -69,7 +69,7 @@ class MapViewModel: ObservableObject {
     @Published var isLoading = false
     @Published var error: String?
     @Published var showingActiveOnly = false
-    @Published var selectedNeighborhood: String?
+    @Published var selectedNeighborhoods: Set<String> = []
     @Published var isNeighborhoodFilterExpanded = false
     
     private let airtablePAT = Secrets.airtablePAT
@@ -134,8 +134,10 @@ class MapViewModel: ObservableObject {
             filtered = filtered.filter { $0.fields.isActive == "Yes" }
         }
         
-        if let neighborhood = selectedNeighborhood {
-            filtered = filtered.filter { $0.fields.neighborhood.contains(neighborhood) }
+        if !selectedNeighborhoods.isEmpty {
+            filtered = filtered.filter { event in
+                !Set(event.fields.neighborhood).isDisjoint(with: selectedNeighborhoods)
+            }
         }
         
         return filtered
@@ -269,7 +271,7 @@ struct FilterButton: View {
     var body: some View {
         Button(action: { isActive.toggle() }) {
             Text("Happening Now")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 15, weight: .medium))
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
@@ -290,66 +292,110 @@ struct NeighborhoodFilterButton: View {
     @ObservedObject var viewModel: MapViewModel
     
     var body: some View {
-        VStack(alignment: .leading) {
+        ZStack(alignment: .topLeading) {
+            // Filter button container
             Button(action: {
                 withAnimation {
                     viewModel.isNeighborhoodFilterExpanded.toggle()
                 }
             }) {
                 HStack {
-                    Text(viewModel.selectedNeighborhood ?? "Neighborhood")
-                        .font(.system(size: 14, weight: .medium))
+                    Text(buttonTitle)
+                        .font(.system(size: 15, weight: .medium))
                     Image(systemName: "chevron.down")
                         .rotationEffect(.degrees(viewModel.isNeighborhoodFilterExpanded ? 180 : 0))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 18)
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18)
-                        .stroke(viewModel.selectedNeighborhood != nil ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
-                )
-                .foregroundColor(viewModel.selectedNeighborhood != nil ? .blue : .black)
             }
+            .background(
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color.white)
+                    .shadow(color: Color.black.opacity(0.2), radius: 4, x: 0, y: 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(!viewModel.selectedNeighborhoods.isEmpty ? Color.blue : Color.gray.opacity(0.3), lineWidth: 1)
+            )
+            .foregroundColor(!viewModel.selectedNeighborhoods.isEmpty ? .blue : .black)
             
+            // Dropdown overlay
             if viewModel.isNeighborhoodFilterExpanded {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 8) {
+                VStack(spacing: 0) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(viewModel.uniqueNeighborhoods, id: \.self) { neighborhood in
+                                Button(action: {
+                                    withAnimation {
+                                        if viewModel.selectedNeighborhoods.contains(neighborhood) {
+                                            viewModel.selectedNeighborhoods.remove(neighborhood)
+                                        } else {
+                                            viewModel.selectedNeighborhoods.insert(neighborhood)
+                                        }
+                                    }
+                                }) {
+                                    HStack(spacing: 12) {
+                                        if viewModel.selectedNeighborhoods.contains(neighborhood) {
+                                            Image(systemName: "checkmark")
+                                                .foregroundColor(.blue)
+                                        } else {
+                                            Image(systemName: "checkmark")
+                                                .foregroundColor(.clear)
+                                        }
+                                        
+                                        Text(neighborhood)
+                                            .font(.system(size: 15, weight: viewModel.selectedNeighborhoods.contains(neighborhood) ? .semibold : .regular))
+                                            .foregroundColor(viewModel.selectedNeighborhoods.contains(neighborhood) ? .blue : .primary)
+                                        
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                    .padding(.vertical, 4)
+                                }
+                            }
+                        }
+                        .padding(.top, 12)
+                        .padding(.horizontal)
+                        .padding(.bottom, 8)
+                    }
+                    .frame(maxHeight: 150)
+                    
+                    if !viewModel.selectedNeighborhoods.isEmpty {
+                        Divider()
                         Button(action: {
                             withAnimation {
-                                viewModel.selectedNeighborhood = nil
+                                viewModel.selectedNeighborhoods.removeAll()
                                 viewModel.isNeighborhoodFilterExpanded = false
                             }
                         }) {
-                            Text("All Neighborhoods")
-                                .foregroundColor(.primary)
-                                .padding(.vertical, 4)
-                        }
-                        
-                        ForEach(viewModel.uniqueNeighborhoods, id: \.self) { neighborhood in
-                            Button(action: {
-                                withAnimation {
-                                    viewModel.selectedNeighborhood = neighborhood
-                                    viewModel.isNeighborhoodFilterExpanded = false
-                                }
-                            }) {
-                                Text(neighborhood)
-                                    .foregroundColor(.primary)
-                                    .padding(.vertical, 4)
+                            HStack(spacing: 8) {
+                                Image(systemName: "xmark.circle.fill")
+                                Text("Clear Filter")
+                                    .fontWeight(.semibold)
                             }
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
                         }
+                        .foregroundColor(.blue)
+                        .padding(.horizontal)
                     }
-                    .padding()
                 }
                 .background(Color.white)
                 .cornerRadius(12)
                 .shadow(color: Color.black.opacity(0.2), radius: 4)
-                .frame(maxHeight: 200)
+                .offset(y: 45)
+                .frame(maxWidth: 280)
             }
+        }
+    }
+    
+    private var buttonTitle: String {
+        if viewModel.selectedNeighborhoods.isEmpty {
+            return "Neighborhood"
+        } else if viewModel.selectedNeighborhoods.count == 1 {
+            return viewModel.selectedNeighborhoods.first ?? ""
+        } else {
+            return "\(viewModel.selectedNeighborhoods.count) Selected"
         }
     }
 }
@@ -507,7 +553,8 @@ struct ContentView: View {
     @State private var selectedPlace: (String, PlaceDetails)? = nil
     
     var body: some View {
-        ZStack(alignment: .bottom) {
+        ZStack {
+            // Map layer
             MapViewContainer(
                 viewModel: viewModel,
                 selectedPlace: $selectedPlace
@@ -517,6 +564,7 @@ struct ContentView: View {
                 viewModel.fetchData()
             }
             
+            // Filter buttons layer - simplified structure
             VStack {
                 HStack(spacing: 12) {
                     FilterButton(isActive: $viewModel.showingActiveOnly)
@@ -524,11 +572,20 @@ struct ContentView: View {
                     Spacer()
                 }
                 .padding(.horizontal)
-                .padding(.top)
+                .padding(.top, 8)
                 
                 Spacer()
+                
+                if let (googleMapsId, details) = selectedPlace {
+                    PlaceDetailsCard(
+                        googleMapsId: googleMapsId,
+                        details: details,
+                        selectedPlace: $selectedPlace
+                    )
+                }
             }
             
+            // Loading and error overlays
             if viewModel.isLoading {
                 ProgressView()
                     .scaleEffect(1.5)
@@ -547,15 +604,6 @@ struct ContentView: View {
                 .background(Color.white)
                 .cornerRadius(8)
                 .shadow(radius: 4)
-            }
-            
-            if let (googleMapsId, details) = selectedPlace {
-                PlaceDetailsCard(
-                    googleMapsId: googleMapsId,
-                    details: details,
-                    selectedPlace: $selectedPlace
-                )
-                .transition(.move(edge: .bottom))
             }
         }
     }
